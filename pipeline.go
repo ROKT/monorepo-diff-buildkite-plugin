@@ -27,16 +27,20 @@ func uploadPipeline(plugin Plugin, generatePipeline PipelineGenerator) (string, 
 		return "", []string{}, err
 	}
 
-	if len(diffOutput) < 1 {
-		log.Info("No changes detected. Skipping pipeline upload.")
-		return "", []string{}, nil
-	}
-
 	log.Debug("Output from diff: \n" + strings.Join(diffOutput, "\n"))
 
 	steps, err := stepsToTrigger(diffOutput, plugin.Watch)
 	if err != nil {
 		return "", []string{}, err
+	}
+
+	if len(diffOutput) < 1 {
+		log.Info("No changes detected.")
+		if len(steps) < 1 {
+			log.Info("Skip pipeline upload.")
+			return "", []string{}, nil
+		}
+		log.Info("Adding no-match steps.")
 	}
 
 	pipeline, err := generatePipeline(steps, plugin)
@@ -79,9 +83,13 @@ func diff(command string) ([]string, error) {
 
 func stepsToTrigger(files []string, watch []WatchConfig) ([]Step, error) {
 	steps := []Step{}
+	nomatchSteps := []Step{}
 
 	for _, w := range watch {
 		for _, p := range w.Paths {
+			if p == "##NOMATCH##" {
+				nomatchSteps = append(nomatchSteps, w.Step)
+			}
 			for _, f := range files {
 				match, err := matchPath(p, f)
 				if err != nil {
@@ -93,6 +101,9 @@ func stepsToTrigger(files []string, watch []WatchConfig) ([]Step, error) {
 				}
 			}
 		}
+	}
+	if len(nomatchSteps) > 0 && len(steps) < 1 {
+		steps = nomatchSteps
 	}
 
 	return dedupSteps(steps), nil
